@@ -8,7 +8,6 @@
     />
     <title>Bird Tracker Map</title>
 
-    <!-- Force Leaflet to avoid 3D transforms in glitch-prone embedded environments -->
     <script>
       L_DISABLE_3D = true;
     </script>
@@ -58,11 +57,25 @@
         color: #333;
         display: none;
       }
+
+      .status {
+        position: absolute;
+        left: 10px;
+        top: 10px;
+        z-index: 1000;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid #bbb;
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 12px;
+        color: #333;
+      }
     </style>
   </head>
   <body>
     <div id="map"></div>
     <div id="tileDebug" class="tile-debug"></div>
+    <div id="status" class="status">Waiting for /data/track.json</div>
 
     <script>
       const pathRenderer = L.canvas({ padding: 0.5 });
@@ -72,27 +85,21 @@
         zoom: 13,
         minZoom: 3,
         maxZoom: 19,
-
         preferCanvas: true,
         renderer: pathRenderer,
-
         zoomControl: true,
         attributionControl: true,
-
-        // Stabilize embedded rendering
         zoomAnimation: false,
         fadeAnimation: false,
         markerZoomAnimation: false,
         inertia: false,
-
-        // Keep zooming discrete and tile-aligned
         zoomSnap: 1,
         zoomDelta: 1,
-
         trackResize: true,
       });
 
       const tileDebug = document.getElementById("tileDebug");
+      const statusBox = document.getElementById("status");
 
       const tiles = L.tileLayer(
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -129,30 +136,13 @@
 
       let marker = null;
       let hasInitialFix = false;
-      let followBird = true;
+      let lastDrawnSeq = -1;
 
       function ensureMarker(point) {
         if (!marker) {
           marker = L.marker(point, { keyboard: false }).addTo(map);
         } else {
           marker.setLatLng(point);
-        }
-      }
-
-      function addPoint(lat, lon) {
-        const point = [lat, lon];
-
-        path.addLatLng(point);
-        ensureMarker(point);
-
-        if (!hasInitialFix) {
-          hasInitialFix = true;
-          map.setView(point, 14, { animate: false });
-          return;
-        }
-
-        if (followBird) {
-          map.panTo(point, { animate: false });
         }
       }
 
@@ -165,18 +155,30 @@
         hasInitialFix = false;
       }
 
-      function showEntireTrack() {
-        const bounds = path.getBounds();
-        if (bounds.isValid()) {
-          map.fitBounds(bounds, {
-            padding: [40, 40],
-            animate: false,
-          });
+      function drawTrack(points) {
+        if (!points.length) {
+          clearTrack();
+          return;
         }
-      }
 
-      function setFollowBird(enabled) {
-        followBird = !!enabled;
+        const latlngs = points.map((p) => [p.lat, p.lon]);
+        path.setLatLngs(latlngs);
+        ensureMarker(latlngs[latlngs.length - 1]);
+
+        if (!hasInitialFix) {
+          hasInitialFix = true;
+          if (latlngs.length === 1) {
+            map.setView(latlngs[0], 14, { animate: false });
+          } else {
+            map.fitBounds(path.getBounds(), {
+              padding: [40, 40],
+              animate: false,
+            });
+          }
+          return;
+        }
+
+        marker.setLatLng(latlngs[latlngs.length - 1]);
       }
 
       function onHostResize() {
@@ -186,6 +188,40 @@
         });
       }
 
+      async function refreshTrack() {
+        try {
+          const response = await fetch(`/data/track.json?ts=${Date.now()}`, {
+            cache: "no-store",
+          });
+
+          if (!response.ok) {
+            statusBox.textContent = `track.json unavailable (${response.status})`;
+            return;
+          }
+
+          const data = await response.json();
+          const points = Array.isArray(data.points) ? data.points : [];
+
+          if (!points.length) {
+            clearTrack();
+            lastDrawnSeq = -1;
+            statusBox.textContent = "No offloaded points yet";
+            return;
+          }
+
+          const newestSeq = points[points.length - 1].seq;
+          if (newestSeq !== lastDrawnSeq) {
+            drawTrack(points);
+            lastDrawnSeq = newestSeq;
+          }
+
+          statusBox.textContent = `Loaded ${points.length} point${points.length === 1 ? "" : "s"}`;
+        } catch (error) {
+          console.error("Failed to load track.json:", error);
+          statusBox.textContent = "Error loading /data/track.json";
+        }
+      }
+
       window.addEventListener("load", function () {
         requestAnimationFrame(function () {
           onHostResize();
@@ -193,6 +229,10 @@
       });
 
       window.addEventListener("resize", onHostResize);
+
+      refreshTrack();
+      setInterval(refreshTrack, 3000);
     </script>
   </body>
 </html>
+

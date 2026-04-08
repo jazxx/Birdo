@@ -90,8 +90,9 @@
       }
 
       .stat-value {
-        font-size: 1.6rem;
+        font-size: 1.35rem;
         font-weight: 700;
+        word-break: break-word;
       }
 
       .info-text {
@@ -133,24 +134,28 @@
           </section>
 
           <aside class="panel">
-            <h2>Live Telemetry</h2>
+            <h2>Track Status</h2>
 
             <div class="stats-list">
               <div class="stat-card">
-                <div class="stat-label">Altitude</div>
-                <div class="stat-value" id="altitudeValue">120.4 m</div>
+                <div class="stat-label">Point Count</div>
+                <div class="stat-value" id="pointCountValue">0</div>
               </div>
 
               <div class="stat-card">
-                <div class="stat-label">Humidity</div>
-                <div class="stat-value" id="humidityValue">58%</div>
+                <div class="stat-label">Latest Position</div>
+                <div class="stat-value" id="latestPositionValue">Waiting for data</div>
               </div>
 
               <div class="stat-card">
-                <div class="stat-label">Temperature</div>
-                <div class="stat-value" id="temperatureValue">22.6 °C</div>
+                <div class="stat-label">Latest RSSI</div>
+                <div class="stat-value" id="latestRssiValue">N/A</div>
               </div>
             </div>
+
+            <p class="subtle" id="trackStatusText">
+              Waiting for /data/track.json
+            </p>
           </aside>
         </div>
 
@@ -169,60 +174,113 @@
     </div>
 
     <script>
-      // Create map
       const map = L.map("map", {
         zoomControl: true,
       }).setView([38.9007, -77.05], 13);
 
-      // OpenStreetMap tiles
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap contributors",
       }).addTo(map);
 
-      // Demo path points
-      const pathPoints = [
-        [38.9007, -77.05], // Foggy Bottom
-        [38.8955, -77.03],
-        [38.892, -77.018],
-        [38.8899, -77.0091], // Near Capitol
-      ];
+      const pathLine = L.polyline([], { weight: 4 }).addTo(map);
+      let currentMarker = null;
+      let lastDrawnSeq = -1;
+      let hasFitTrack = false;
 
-      // Draw polyline
-      const pathLine = L.polyline(pathPoints, {
-        weight: 4,
-      }).addTo(map);
-
-      // Current location marker
-      const currentMarker = L.marker(pathPoints[pathPoints.length - 1]).addTo(
-        map
-      );
-
-      // Fit map to path
-      map.fitBounds(pathLine.getBounds(), { padding: [30, 30] });
-
-      // Function you can call later with live data
-      function addPoint(lat, lon) {
-        const point = [lat, lon];
-        pathPoints.push(point);
-        pathLine.setLatLngs(pathPoints);
-        currentMarker.setLatLng(point);
-        map.panTo(point);
+      function setStatus(message) {
+        document.getElementById("trackStatusText").textContent = message;
       }
 
-      // Function you can call later with live telemetry
-      function updateTelemetry(altitude, humidity, temperature) {
-        document.getElementById("altitudeValue").textContent = altitude + " m";
-        document.getElementById("humidityValue").textContent = humidity + "%";
-        document.getElementById("temperatureValue").textContent =
-          temperature + " °C";
+      function updateSidebar(points) {
+        document.getElementById("pointCountValue").textContent = String(points.length);
+
+        if (points.length === 0) {
+          document.getElementById("latestPositionValue").textContent = "Waiting for data";
+          document.getElementById("latestRssiValue").textContent = "N/A";
+          return;
+        }
+
+        const last = points[points.length - 1];
+        document.getElementById("latestPositionValue").textContent =
+          `${last.lat.toFixed(6)}, ${last.lon.toFixed(6)}`;
+        document.getElementById("latestRssiValue").textContent =
+          Number.isFinite(last.rssi) ? `${last.rssi} dBm` : "N/A";
       }
 
-      // Demo update after 2 seconds
-      setTimeout(() => {
-        addPoint(38.8893, -77.0005);
-        updateTelemetry(124.8, 61, 23.1);
-      }, 2000);
+      function drawTrack(points) {
+        const latlngs = points.map((p) => [p.lat, p.lon]);
+        pathLine.setLatLngs(latlngs);
+
+        if (latlngs.length === 0) {
+          if (currentMarker) {
+            map.removeLayer(currentMarker);
+            currentMarker = null;
+          }
+          hasFitTrack = false;
+          return;
+        }
+
+        const lastPoint = latlngs[latlngs.length - 1];
+
+        if (!currentMarker) {
+          currentMarker = L.marker(lastPoint).addTo(map);
+        } else {
+          currentMarker.setLatLng(lastPoint);
+        }
+
+        if (latlngs.length === 1) {
+          map.setView(lastPoint, 14);
+          hasFitTrack = true;
+          return;
+        }
+
+        if (!hasFitTrack) {
+          map.fitBounds(pathLine.getBounds(), { padding: [30, 30] });
+          hasFitTrack = true;
+        } else {
+          map.panTo(lastPoint);
+        }
+      }
+
+      async function refreshTrack() {
+        try {
+          const response = await fetch(`/data/track.json?ts=${Date.now()}`, {
+            cache: "no-store",
+          });
+
+          if (!response.ok) {
+            setStatus(`track.json unavailable (${response.status})`);
+            return;
+          }
+
+          const data = await response.json();
+          const points = Array.isArray(data.points) ? data.points : [];
+
+          updateSidebar(points);
+
+          if (points.length === 0) {
+            setStatus("No offloaded points yet");
+            drawTrack([]);
+            lastDrawnSeq = -1;
+            return;
+          }
+
+          const newestSeq = points[points.length - 1].seq;
+          if (newestSeq !== lastDrawnSeq) {
+            drawTrack(points);
+            lastDrawnSeq = newestSeq;
+          }
+
+          setStatus(`Loaded ${points.length} point${points.length === 1 ? "" : "s"}`);
+        } catch (error) {
+          console.error("Failed to load track.json:", error);
+          setStatus("Error loading /data/track.json");
+        }
+      }
+
+      refreshTrack();
+      setInterval(refreshTrack, 3000);
     </script>
   </body>
 </html>
