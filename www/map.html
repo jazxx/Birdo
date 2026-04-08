@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Bird Tracker Map</title>
+
+    <!-- Force Leaflet to avoid 3D transforms in glitch-prone embedded environments -->
+    <script>
+      L_DISABLE_3D = true;
+    </script>
+
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #dfe6ec;
+      }
+
+      #map {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        background: #dfe6ec;
+      }
+
+      .leaflet-container {
+        width: 100%;
+        height: 100%;
+        background: #dfe6ec;
+        font: 12px/1.2 system-ui, sans-serif;
+      }
+
+      .tile-debug {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+        z-index: 1000;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid #bbb;
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 12px;
+        color: #333;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="tileDebug" class="tile-debug"></div>
+
+    <script>
+      const pathRenderer = L.canvas({ padding: 0.5 });
+
+      const map = L.map("map", {
+        center: [38.9007, -77.05],
+        zoom: 13,
+        minZoom: 3,
+        maxZoom: 19,
+
+        preferCanvas: true,
+        renderer: pathRenderer,
+
+        zoomControl: true,
+        attributionControl: true,
+
+        // Stabilize embedded rendering
+        zoomAnimation: false,
+        fadeAnimation: false,
+        markerZoomAnimation: false,
+        inertia: false,
+
+        // Keep zooming discrete and tile-aligned
+        zoomSnap: 1,
+        zoomDelta: 1,
+
+        trackResize: true,
+      });
+
+      const tileDebug = document.getElementById("tileDebug");
+
+      const tiles = L.tileLayer(
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+          attribution: "&copy; OpenStreetMap contributors",
+          tileSize: 256,
+          detectRetina: false,
+          updateWhenIdle: true,
+          updateWhenZooming: false,
+          keepBuffer: 6,
+          noWrap: false,
+        }
+      );
+
+      tiles.on("tileerror", function (e) {
+        tileDebug.style.display = "block";
+        tileDebug.textContent =
+          "Tile load issue at z=" +
+          e.coords.z +
+          " x=" +
+          e.coords.x +
+          " y=" +
+          e.coords.y;
+      });
+
+      tiles.addTo(map);
+
+      const path = L.polyline([], {
+        renderer: pathRenderer,
+        weight: 4,
+        smoothFactor: 1,
+        noClip: false,
+      }).addTo(map);
+
+      let marker = null;
+      let hasInitialFix = false;
+      let followBird = true;
+
+      function ensureMarker(point) {
+        if (!marker) {
+          marker = L.marker(point, { keyboard: false }).addTo(map);
+        } else {
+          marker.setLatLng(point);
+        }
+      }
+
+      function addPoint(lat, lon) {
+        const point = [lat, lon];
+
+        path.addLatLng(point);
+        ensureMarker(point);
+
+        if (!hasInitialFix) {
+          hasInitialFix = true;
+          map.setView(point, 14, { animate: false });
+          return;
+        }
+
+        if (followBird) {
+          map.panTo(point, { animate: false });
+        }
+      }
+
+      function clearTrack() {
+        path.setLatLngs([]);
+        if (marker) {
+          map.removeLayer(marker);
+          marker = null;
+        }
+        hasInitialFix = false;
+      }
+
+      function showEntireTrack() {
+        const bounds = path.getBounds();
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, {
+            padding: [40, 40],
+            animate: false,
+          });
+        }
+      }
+
+      function setFollowBird(enabled) {
+        followBird = !!enabled;
+      }
+
+      function onHostResize() {
+        map.invalidateSize({
+          pan: false,
+          debounceMoveend: true,
+        });
+      }
+
+      window.addEventListener("load", function () {
+        requestAnimationFrame(function () {
+          onHostResize();
+        });
+      });
+
+      window.addEventListener("resize", onHostResize);
+    </script>
+  </body>
+</html>

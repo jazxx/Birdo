@@ -1,0 +1,7 @@
+wserver
+*.o
+*.class
+javafx-sdk-22/
+lib/
+*.log
+.DS_Store

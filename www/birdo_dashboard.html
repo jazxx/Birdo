@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Birdo Dashboard</title>
+
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Times New Roman", Times, serif, sans-serif;
+        background: #f4f6f8;
+        color: #222;
+      }
+
+      .page {
+        max-width: 1200px;
+        margin: 32px auto;
+        padding: 24px;
+      }
+
+      .dashboard {
+        background: white;
+        border: 2px solid #2d2d2d;
+        border-radius: 18px;
+        padding: 24px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+      }
+
+      .title {
+        margin: 0 0 24px 0;
+        font-size: 2.75rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+
+      .top-row {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 24px;
+        margin-bottom: 24px;
+      }
+
+      .panel {
+        border: 2px solid #2d2d2d;
+        border-radius: 16px;
+        background: #fafafa;
+        padding: 18px;
+      }
+
+      .panel h2 {
+        margin: 0 0 14px 0;
+        font-size: 1.4rem;
+      }
+
+      #map {
+        width: 100%;
+        height: 420px;
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .stats-list {
+        display: grid;
+        gap: 14px;
+        margin-top: 8px;
+      }
+
+      .stat-card {
+        background: white;
+        border: 1.5px solid #d1d5db;
+        border-radius: 12px;
+        padding: 14px 16px;
+      }
+
+      .stat-label {
+        font-size: 0.95rem;
+        color: #555;
+        margin-bottom: 6px;
+      }
+
+      .stat-value {
+        font-size: 1.6rem;
+        font-weight: 700;
+      }
+
+      .info-text {
+        font-size: 1rem;
+        line-height: 1.6;
+        margin: 0;
+      }
+
+      .subtle {
+        color: #666;
+        font-size: 0.95rem;
+        margin-top: 10px;
+      }
+
+      @media (max-width: 900px) {
+        .top-row {
+          grid-template-columns: 1fr;
+        }
+
+        #map {
+          height: 320px;
+        }
+
+        .title {
+          font-size: 2.2rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="dashboard">
+        <h1 class="title">Birdo</h1>
+
+        <div class="top-row">
+          <section class="panel">
+            <h2>Map</h2>
+            <div id="map"></div>
+          </section>
+
+          <aside class="panel">
+            <h2>Live Telemetry</h2>
+
+            <div class="stats-list">
+              <div class="stat-card">
+                <div class="stat-label">Altitude</div>
+                <div class="stat-value" id="altitudeValue">120.4 m</div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-label">Humidity</div>
+                <div class="stat-value" id="humidityValue">58%</div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-label">Temperature</div>
+                <div class="stat-value" id="temperatureValue">22.6 °C</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <section class="panel">
+          <h2>Info</h2>
+          <p class="info-text">
+            Bird Tracker is a real-time wildlife monitoring system designed to
+            track birds’ location and environmental data to support research,
+            conservation, and field studies. By helping researchers better
+            understand movement patterns, habitat use, and survival conditions,
+            it can contribute to efforts to protect vulnerable species and help
+            prevent extinction.
+          </p>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      // Create map
+      const map = L.map("map", {
+        zoomControl: true,
+      }).setView([38.9007, -77.05], 13);
+
+      // OpenStreetMap tiles
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+
+      // Demo path points
+      const pathPoints = [
+        [38.9007, -77.05], // Foggy Bottom
+        [38.8955, -77.03],
+        [38.892, -77.018],
+        [38.8899, -77.0091], // Near Capitol
+      ];
+
+      // Draw polyline
+      const pathLine = L.polyline(pathPoints, {
+        weight: 4,
+      }).addTo(map);
+
+      // Current location marker
+      const currentMarker = L.marker(pathPoints[pathPoints.length - 1]).addTo(
+        map
+      );
+
+      // Fit map to path
+      map.fitBounds(pathLine.getBounds(), { padding: [30, 30] });
+
+      // Function you can call later with live data
+      function addPoint(lat, lon) {
+        const point = [lat, lon];
+        pathPoints.push(point);
+        pathLine.setLatLngs(pathPoints);
+        currentMarker.setLatLng(point);
+        map.panTo(point);
+      }
+
+      // Function you can call later with live telemetry
+      function updateTelemetry(altitude, humidity, temperature) {
+        document.getElementById("altitudeValue").textContent = altitude + " m";
+        document.getElementById("humidityValue").textContent = humidity + "%";
+        document.getElementById("temperatureValue").textContent =
+          temperature + " °C";
+      }
+
+      // Demo update after 2 seconds
+      setTimeout(() => {
+        addPoint(38.8893, -77.0005);
+        updateTelemetry(124.8, 61, 23.1);
+      }, 2000);
+    </script>
+  </body>
+</html>
