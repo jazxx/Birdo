@@ -136,7 +136,7 @@
 
       let marker = null;
       let hasInitialFix = false;
-      let lastDrawnSeq = -1;
+      let lastPointCount = -1;
 
       function ensureMarker(point) {
         if (!marker) {
@@ -148,11 +148,13 @@
 
       function clearTrack() {
         path.setLatLngs([]);
+        path.redraw();
         if (marker) {
           map.removeLayer(marker);
           marker = null;
         }
         hasInitialFix = false;
+        lastPointCount = -1;
       }
 
       function drawTrack(points) {
@@ -162,23 +164,28 @@
         }
 
         const latlngs = points.map((p) => [p.lat, p.lon]);
+
         path.setLatLngs(latlngs);
-        ensureMarker(latlngs[latlngs.length - 1]);
+        path.redraw();
+
+        const lastPoint = latlngs[latlngs.length - 1];
+        ensureMarker(lastPoint);
 
         if (!hasInitialFix) {
           hasInitialFix = true;
           if (latlngs.length === 1) {
-            map.setView(latlngs[0], 14, { animate: false });
+            map.setView(lastPoint, 14, { animate: false });
           } else {
             map.fitBounds(path.getBounds(), {
               padding: [40, 40],
               animate: false,
             });
           }
-          return;
+        } else {
+          map.panTo(lastPoint, { animate: false });
         }
 
-        marker.setLatLng(latlngs[latlngs.length - 1]);
+        lastPointCount = points.length;
       }
 
       function onHostResize() {
@@ -204,15 +211,12 @@
 
           if (!points.length) {
             clearTrack();
-            lastDrawnSeq = -1;
             statusBox.textContent = "No offloaded points yet";
             return;
           }
 
-          const newestSeq = points[points.length - 1].seq;
-          if (newestSeq !== lastDrawnSeq) {
+          if (points.length !== lastPointCount) {
             drawTrack(points);
-            lastDrawnSeq = newestSeq;
           }
 
           statusBox.textContent = `Loaded ${points.length} point${points.length === 1 ? "" : "s"}`;
@@ -231,8 +235,7 @@
       window.addEventListener("resize", onHostResize);
 
       refreshTrack();
-      setInterval(refreshTrack, 3000);
+      setInterval(refreshTrack, 1000);
     </script>
   </body>
 </html>
-
